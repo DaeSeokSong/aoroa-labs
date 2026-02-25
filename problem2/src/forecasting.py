@@ -5,10 +5,15 @@ forecasting.py
 
 파이프라인:
   1. Prophet        — 계절성·추세 모델 (baseline)
-  2. XGBoost        — lag feature 기반 ML 모델
-  3. 앙상블          — Prophet + XGBoost 가중 평균 (weight는 Train MAE 역수 기반)
+  2. XGBoost        — lag feature 기반 ML 모델 (early stopping 적용)
+  3. 앙상블          — Prophet + XGBoost 가중 평균 (weight는 Val MAE 역수 기반)
   4. 평가            — MAPE, RMSE, MAE
   5. 시각화          — 예측 vs 실제, 잔차 분포
+
+가중치 산출 전략:
+  - Train MAE 대신 Validation MAE(마지막 VAL_DAYS)를 사용한다.
+  - Train MAE는 XGBoost 과적합으로 인해 거의 0에 수렴 → 가중치 왜곡 발생.
+  - Val MAE는 held-out 구간의 실제 일반화 성능을 반영한다.
 """
 
 from __future__ import annotations
@@ -40,6 +45,9 @@ OUT_DIR = Path(__file__).parents[1] / "outputs" / "forecasting"
 LAG_DAYS     = [1, 2, 3, 7, 14, 21, 28]   # 이전 N일 매출
 ROLLING_WINS = [7, 14, 30]                  # 이동 평균 윈도우
 
+# 앙상블 가중치 산출용 held-out validation 기간
+VAL_DAYS = 30
+
 
 def _save(fig: plt.Figure, name: str) -> Path:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,6 +55,16 @@ def _save(fig: plt.Figure, name: str) -> Path:
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     return path
+
+
+def get_val_split(train: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Train 데이터의 마지막 VAL_DAYS를 validation set으로 분리한다.
+    Validation set은 앙상블 가중치 산출에만 사용된다.
+    """
+    train_sub = train.iloc[:-VAL_DAYS].copy()
+    val = train.iloc[-VAL_DAYS:].copy()
+    return train_sub, val
 
 
 # ─────────────────────────────────────────────────────────────
@@ -68,6 +86,17 @@ def evaluate(y_true: np.ndarray, y_pred: np.ndarray, label: str = "") -> dict:
 # ─────────────────────────────────────────────────────────────
 #  1. Prophet 모델
 # ─────────────────────────────────────────────────────────────
+def _make_prophet_model(holiday_df) -> Prophet:
+    return Prophet(
+        yearly_seasonality=True,
+        weekly_seasonality=True,
+        daily_seasonality=False,
+        changepoint_prior_scale=0.05,
+        seasonality_prior_scale=10,
+        holidays=holiday_df,
+    )
+
+
 def run_prophet(
     train: pd.DataFrame, test: pd.DataFrame
 ) -> tuple[pd.Series, pd.Series, dict]:
@@ -79,8 +108,12 @@ def run_prophet(
     - weekly_seasonality=True  : 주간 계절성 (요일별 패턴)
     - daily_seasonality=False  : 일내 시계열 아님
     - changepoint_prior_scale=0.05 : 추세 변화 민감도 (과적합 방지)
-    - 한국 공휴일 추가 (holidays 패키지)
+    - 한국 공휴일 추가 (holidays 패키지, ImportError 시 graceful fallback)
+
+    앙상블 가중치 산출을 위해 마지막 VAL_DAYS의 val MAE를 함께 반환한다.
     """
+    # 명시적 ImportError/Exception 분기로 fallback 원인 투명화
+    holiday_df = None
     try:
         import holidays as hd
         kr_holidays = hd.country_holidays("KR", years=[2023, 2024])
@@ -88,34 +121,28 @@ def run_prophet(
             {"ds": pd.Timestamp(d), "holiday": name}
             for d, name in kr_holidays.items()
         ])
-    except Exception:
-        holiday_df = None
+    except ImportError:
+        print("  [Warning] holidays 패키지 없음 — 공휴일 없이 Prophet 학습")
+    except Exception as e:
+        print(f"  [Warning] holidays 로드 실패 ({e}) — 공휴일 없이 진행")
 
-    model = Prophet(
-        yearly_seasonality=True,
-        weekly_seasonality=True,
-        daily_seasonality=False,
-        changepoint_prior_scale=0.05,
-        seasonality_prior_scale=10,
-        holidays=holiday_df,
-    )
-    model.fit(train[["ds", "y"]])
+    # Phase 1: validation split으로 val MAE 산출 (앙상블 가중치용)
+    train_sub, val = get_val_split(train)
+    model_val = _make_prophet_model(holiday_df)
+    model_val.fit(train_sub[["ds", "y"]])
+    val_pred = model_val.predict(val[["ds"]])["yhat"].clip(lower=0).values
+    val_metrics = evaluate(val["y"].values, val_pred, label="Prophet(Val)")
 
-    # Train 내 예측 (앙상블 가중치 산출용)
-    train_forecast = model.predict(train[["ds"]])
-    train_pred = train_forecast["yhat"].values
-
-    # Test 예측
-    future      = model.predict(test[["ds"]])
-    test_pred   = future["yhat"].clip(lower=0)
-
-    train_metrics = evaluate(train["y"].values, train_pred, label="Prophet(Train)")
-    test_metrics  = evaluate(test["y"].values, test_pred.values, label="Prophet(Test)")
+    # Phase 2: 전체 train으로 재학습 → test 예측
+    model_full = _make_prophet_model(holiday_df)
+    model_full.fit(train[["ds", "y"]])
+    test_pred = model_full.predict(test[["ds"]])["yhat"].clip(lower=0)
+    test_metrics = evaluate(test["y"].values, test_pred.values, label="Prophet(Test)")
 
     return (
-        pd.Series(train_pred, index=train.index, name="prophet"),
+        pd.Series(val_pred, index=val.index, name="prophet"),
         pd.Series(test_pred.values, index=test.index, name="prophet"),
-        {"train": train_metrics, "test": test_metrics},
+        {"val": val_metrics, "test": test_metrics},
     )
 
 
@@ -153,22 +180,34 @@ def _build_xgb_features(daily: pd.DataFrame) -> pd.DataFrame:
 def run_xgboost(
     train: pd.DataFrame, test: pd.DataFrame
 ) -> tuple[pd.Series, pd.Series, dict]:
-    """XGBoost로 학습 후 Test 기간 예측값을 반환한다."""
+    """
+    XGBoost로 학습 후 Test 기간 예측값을 반환한다.
+
+    2단계 학습 전략:
+    - Phase 1: train_sub(train - VAL_DAYS) + val에서 early stopping으로 최적 n_estimators 탐색
+    - Phase 2: 전체 train으로 best_n으로 재학습 → test 예측
+    앙상블 가중치 산출을 위해 val MAE를 함께 반환한다.
+    """
     daily = pd.concat([train, test], ignore_index=True)
     df_feat = _build_xgb_features(daily)
-
     feature_cols = [c for c in df_feat.columns if c not in ["ds", "y"]]
 
     # lag 최대값(28일)만큼 앞부분 제거
     df_feat = df_feat.dropna()
 
-    n_train = (df_feat["ds"] <= "2024-03-31").sum()
-    X_train = df_feat.iloc[:n_train][feature_cols]
-    y_train = df_feat.iloc[:n_train]["y"]
-    X_test  = df_feat.iloc[n_train:][feature_cols]
+    n_train_full = (df_feat["ds"] <= "2024-03-31").sum()
+    n_val = VAL_DAYS
+    n_train_sub = n_train_full - n_val
 
-    model = XGBRegressor(
-        n_estimators=500,
+    X_full_train = df_feat.iloc[:n_train_full][feature_cols]
+    y_full_train = df_feat.iloc[:n_train_full]["y"]
+    X_sub = df_feat.iloc[:n_train_sub][feature_cols]
+    y_sub = df_feat.iloc[:n_train_sub]["y"]
+    X_val = df_feat.iloc[n_train_sub:n_train_full][feature_cols]
+    y_val = df_feat.iloc[n_train_sub:n_train_full]["y"]
+    X_test = df_feat.iloc[n_train_full:][feature_cols]
+
+    xgb_params = dict(
         learning_rate=0.05,
         max_depth=4,
         subsample=0.8,
@@ -178,33 +217,38 @@ def run_xgboost(
         random_state=42,
         verbosity=0,
     )
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_train, y_train)],
-        verbose=False,
-    )
 
-    train_pred = np.clip(model.predict(X_train), 0, None)
-    test_pred  = np.clip(model.predict(X_test),  0, None)
+    # Phase 1: early stopping으로 최적 n_estimators 탐색
+    model_es = XGBRegressor(
+        n_estimators=500, early_stopping_rounds=50, **xgb_params
+    )
+    model_es.fit(X_sub, y_sub, eval_set=[(X_val, y_val)], verbose=False)
+    best_n = model_es.best_iteration + 1
+    val_pred = np.clip(model_es.predict(X_val), 0, None)
+    val_metrics = evaluate(y_val.values, val_pred,
+                           label=f"XGBoost(Val, best_n={best_n})")
+
+    # Phase 2: 전체 train으로 재학습 (best_n 사용)
+    model_final = XGBRegressor(n_estimators=best_n, **xgb_params)
+    model_final.fit(X_full_train, y_full_train, verbose=False)
+    test_pred = np.clip(model_final.predict(X_test), 0, None)
 
     # test index를 원래 test DataFrame index에 맞춤
-    test_ds = df_feat.iloc[n_train:]["ds"].values
+    test_ds = df_feat.iloc[n_train_full:]["ds"].values
     test_index = test[test["ds"].isin(test_ds)].index
-
-    train_metrics = evaluate(y_train.values, train_pred, label="XGBoost(Train)")
-    test_metrics  = evaluate(
+    test_metrics = evaluate(
         test.loc[test_index, "y"].values, test_pred, label="XGBoost(Test)"
     )
 
     return (
-        pd.Series(train_pred, index=df_feat.iloc[:n_train].index, name="xgboost"),
-        pd.Series(test_pred,  index=test_index,                    name="xgboost"),
-        {"train": train_metrics, "test": test_metrics},
+        pd.Series(val_pred, index=df_feat.iloc[n_train_sub:n_train_full].index, name="xgboost"),
+        pd.Series(test_pred, index=test_index, name="xgboost"),
+        {"val": val_metrics, "test": test_metrics},
     )
 
 
 # ─────────────────────────────────────────────────────────────
-#  3. 앙상블: Train MAE 역수 기반 가중 평균
+#  3. 앙상블: Val MAE 역수 기반 가중 평균
 # ─────────────────────────────────────────────────────────────
 def ensemble(
     prophet_test: pd.Series,
@@ -214,11 +258,16 @@ def ensemble(
     test: pd.DataFrame,
 ) -> tuple[pd.Series, dict]:
     """
-    Prophet과 XGBoost를 Train MAE 역수 가중으로 앙상블한다.
-    Train MAE가 낮을수록 해당 모델에 더 높은 가중치를 부여한다.
+    Prophet과 XGBoost를 Validation MAE 역수 가중으로 앙상블한다.
+    Val MAE가 낮을수록 해당 모델에 더 높은 가중치를 부여한다.
+
+    Train MAE 대신 Val MAE를 사용하는 이유:
+    - XGBoost는 early stopping 없이 전체 학습 시 Train MAE ≈ 0 수렴 (과적합)
+    - Train MAE 역수 가중 → XGBoost 가중치 ≈ 1.0 → 앙상블이 XGBoost 단독보다 나빠짐
+    - Val MAE는 held-out 구간의 실제 일반화 성능을 반영하여 공정한 가중치 산출
     """
-    w_p = 1.0 / (prophet_metrics["train"]["mae"] + 1e-9)
-    w_x = 1.0 / (xgb_metrics["train"]["mae"] + 1e-9)
+    w_p = 1.0 / (prophet_metrics["val"]["mae"] + 1e-9)
+    w_x = 1.0 / (xgb_metrics["val"]["mae"] + 1e-9)
     w_total = w_p + w_x
 
     w_p /= w_total

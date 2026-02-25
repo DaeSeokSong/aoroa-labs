@@ -61,7 +61,30 @@ def handle_missing(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────
-#  3. Feature Engineering — 유저별 집계
+#  3. 이상치 처리 (Winsorization)
+# ─────────────────────────────────────────────────────────────
+def cap_outliers(df: pd.DataFrame, col: str = "paid_amount", factor: float = 3.0) -> pd.DataFrame:
+    """
+    IQR 방법으로 이상치를 상한에 클리핑한다 (Winsorization).
+
+    삭제가 아닌 클리핑을 선택한 이유:
+    - 이상치 삭제 시 실제 고액 결제 거래 정보를 손실한다.
+    - 클리핑은 분포 왜도(skewness)를 줄이면서 거래 건수를 보존한다.
+    - 상한 기준: Q3 + {factor}×IQR (3-σ 규칙의 비모수 대안, 정규분포 가정 불필요)
+    """
+    df = df.copy()
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    upper = Q3 + factor * (Q3 - Q1)
+    n_outliers = (df[col] > upper).sum()
+    if n_outliers > 0:
+        print(f"  [Outlier] '{col}': {n_outliers}건 상한({upper:,.0f}원) 초과 → 클리핑")
+    df[col] = df[col].clip(upper=upper)
+    return df
+
+
+# ─────────────────────────────────────────────────────────────
+#  4. Feature Engineering — 유저별 집계
 # ─────────────────────────────────────────────────────────────
 def build_user_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -106,8 +129,9 @@ def build_user_features(df: pd.DataFrame) -> pd.DataFrame:
         return diffs.mean() if len(diffs) > 0 else np.nan
 
     avg_interval = g["date"].apply(mean_interval).rename("avg_interval_days")
-    median_interval = avg_interval.median()
-    avg_interval = avg_interval.fillna(median_interval)
+    # 1회 구매자: 재구매 간격이 없으므로 recency_days를 대리 지표로 사용
+    # (마지막 구매 후 경과 일수 = 재구매까지 최소 대기 시간의 하한)
+    avg_interval = avg_interval.fillna(recency)
 
     # 결제 수단 비율
     payment_dummies = pd.get_dummies(df["payment_method"], prefix="pmt")
@@ -195,7 +219,12 @@ def run(path: Path = DATA_PATH) -> dict:
     """
     print("[Preprocessing] 데이터 로딩 중...")
     raw   = load_raw(path)
+
+    print("[Preprocessing] 결측치 처리 중...")
     clean = handle_missing(raw)
+
+    print("[Preprocessing] 이상치 클리핑 중...")
+    clean = cap_outliers(clean)
 
     print("[Preprocessing] 유저 피처 생성 중...")
     user_features = build_user_features(clean)

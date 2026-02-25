@@ -50,7 +50,8 @@ FEATURE_COLS = [
 ]
 
 # 군집 수 탐색 범위
-K_RANGE = range(2, 9)
+KM_K_RANGE  = range(2, 9)    # K-Means: 해석 가능한 소규모 군집 탐색
+GMM_K_RANGE = range(2, 13)   # GMM: BIC 탐색 범위 확장 (boundary 방지)
 
 # 군집별 비즈니스 페르소나 — run() 내부에서 데이터 기반으로 할당
 PERSONA_MAP: dict[int, str] = {}
@@ -82,7 +83,7 @@ def search_kmeans(X: np.ndarray) -> tuple[pd.DataFrame, int]:
     두 지표를 종합하여 최적 K를 반환한다.
     """
     results = []
-    for k in K_RANGE:
+    for k in KM_K_RANGE:
         km = KMeans(n_clusters=k, random_state=42, n_init=10)
         labels = km.fit_predict(X)
         sil = silhouette_score(X, labels)
@@ -132,7 +133,7 @@ def plot_kmeans_search(df_res: pd.DataFrame, best_k: int) -> Path:
 def search_gmm(X: np.ndarray) -> tuple[pd.DataFrame, int]:
     """BIC(Bayesian Information Criterion)으로 최적 K를 탐색한다."""
     results = []
-    for k in K_RANGE:
+    for k in GMM_K_RANGE:
         gm = GaussianMixture(n_components=k, random_state=42,
                              covariance_type="full", n_init=3)
         gm.fit(X)
@@ -291,48 +292,50 @@ def analyze_clusters(
     군집별 피처 평균을 분석하고 비즈니스 페르소나를 자동으로 명명한다.
 
     명명 기준:
-    - recency_days 낮음 + frequency 높음 + total_amount 높음 → VIP 고객
-    - discount_usage_rate 높음 + avg_amount 낮음              → 체리피커
-    - avg_app_time 높음 + frequency 중간                      → 탐색형 고객
-    - recency_days 높음 + frequency 낮음                      → 이탈 위험 고객
-    - 나머지                                                   → 일반 고객
+    - recency_days 낮음 + frequency 높음 + total_amount 높음      → VIP 고객
+    - discount_usage_rate 높음 + avg_discount_rate 높음 + avg_amount 낮음 → 체리피커
+    - avg_app_time 높음 + purchase_span_days 높음                  → 탐색형 고객
+    - recency_days 높음 + frequency 낮음                           → 이탈 위험
+    - 나머지                                                        → 일반 고객
+
+    각 페르소나 점수는 사용하는 피처 수로 정규화하여 공정한 비교를 보장한다.
+    군집 배정은 점수 내림차순 greedy 방식으로 중복을 방지한다.
     """
     df = user_features.copy()
     df["cluster"] = labels
     profile = df.groupby("cluster")[FEATURE_COLS].mean()
 
-    # 각 피처의 순위 (0=최소, n_clusters-1=최대)
+    # 각 피처의 순위 (1=최소, n_clusters=최대)
     ranks = profile.rank(ascending=True)
-
     n = len(profile)
-    persona_map: dict[int, str] = {}
 
+    # 피처 수로 정규화된 페르소나 점수 계산
+    all_scores: dict[int, dict[str, float]] = {}
     for cluster_id in profile.index:
         r = ranks.loc[cluster_id]
-
-        # 점수 계산 (높을수록 해당 페르소나에 가까움)
-        vip_score      = (n - r["recency_days"]) + r["frequency"] + r["total_amount"]
-        cherry_score   = r["discount_usage_rate"] + r["avg_discount_rate"] + (n - r["avg_amount"])
-        explorer_score = r["avg_app_time"] + r["purchase_span_days"]
-        churn_score    = r["recency_days"] + (n - r["frequency"])
-
-        scores = {
-            "VIP 고객":     vip_score,
-            "체리피커":     cherry_score,
-            "탐색형 고객":  explorer_score,
-            "이탈 위험":    churn_score,
+        all_scores[cluster_id] = {
+            "VIP 고객":    ((n - r["recency_days"]) + r["frequency"] + r["total_amount"]) / 3,
+            "체리피커":    (r["discount_usage_rate"] + r["avg_discount_rate"] + (n - r["avg_amount"])) / 3,
+            "탐색형 고객": (r["avg_app_time"] + r["purchase_span_days"]) / 2,
+            "이탈 위험":   (r["recency_days"] + (n - r["frequency"])) / 2,
         }
-        persona_map[cluster_id] = max(scores, key=scores.get)
 
-    # 중복 페르소나 해소: 두 군집이 같은 페르소나를 가지면 점수 낮은 쪽을 "일반 고객"으로
-    used: dict[str, int] = {}
-    for cid, persona in persona_map.items():
-        if persona in used:
-            prev_cid = used[persona]
-            # VIP·체리피커 등 중요 페르소나는 점수 높은 쪽이 유지
-            persona_map[prev_cid if cid != prev_cid else cid] = "일반 고객"
+    # 점수 내림차순 정렬 → greedy 배정 (최고 점수 군집이 페르소나 선점)
+    candidates = sorted(
+        [
+            (max(s.values()), cid, max(s, key=s.get))
+            for cid, s in all_scores.items()
+        ],
+        reverse=True,
+    )
+    persona_map: dict[int, str] = {}
+    used_personas: set[str] = set()
+    for _, cluster_id, best_persona in candidates:
+        if best_persona not in used_personas:
+            persona_map[cluster_id] = best_persona
+            used_personas.add(best_persona)
         else:
-            used[persona] = cid
+            persona_map[cluster_id] = "일반 고객"
 
     return profile, persona_map
 
