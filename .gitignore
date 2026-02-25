@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# uv / virtualenv
+.venv/
+venv/
+.uv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 데이터 파일 (용량 이슈로 제외)
+data/*.csv
+data/*.xlsx
+
+# 로컬 전용 폴더 (git 추적 불필요)
+problem1/
+
+# 이미지/문서 산출물
+*.png
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
