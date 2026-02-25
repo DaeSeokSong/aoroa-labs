@@ -23,7 +23,8 @@ data/*.xlsx
 # 로컬 전용 폴더 (git 추적 불필요)
 problem1/
 
-# 이미지/문서 산출물
+# 시각화/모델 산출물
+problem2/outputs/
 *.png
 *.pdf
 
