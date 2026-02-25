@@ -19,7 +19,6 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -294,7 +293,7 @@ def analyze_clusters(
     명명 기준:
     - recency_days 낮음 + frequency 높음 + total_amount 높음      → VIP 고객
     - discount_usage_rate 높음 + avg_discount_rate 높음 + avg_amount 낮음 → 체리피커
-    - avg_app_time 높음 + purchase_span_days 높음                  → 탐색형 고객
+    - avg_app_time 높음 + purchase_span_days 높음 + avg_amount 낮음 → 탐색형 고객
     - recency_days 높음 + frequency 낮음                           → 이탈 위험
     - 나머지                                                        → 일반 고객
 
@@ -316,7 +315,7 @@ def analyze_clusters(
         all_scores[cluster_id] = {
             "VIP 고객":    ((n - r["recency_days"]) + r["frequency"] + r["total_amount"]) / 3,
             "체리피커":    (r["discount_usage_rate"] + r["avg_discount_rate"] + (n - r["avg_amount"])) / 3,
-            "탐색형 고객": (r["avg_app_time"] + r["purchase_span_days"]) / 2,
+            "탐색형 고객": (r["avg_app_time"] + r["purchase_span_days"] + (n - r["avg_amount"])) / 3,
             "이탈 위험":   (r["recency_days"] + (n - r["frequency"])) / 2,
         }
 

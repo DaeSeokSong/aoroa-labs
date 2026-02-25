@@ -350,14 +350,14 @@ GMM의 8개 군집은 경계가 겹치는 영역이 더 많다.
 \toprule
 \textbf{군집} & \textbf{페르소나} & \textbf{고객 수} & \textbf{비율} & \textbf{주요 피처 특성} \\
 \midrule
-C2 & \textbf{탐색형 고객} & 65명 & 13.0\% &
-  avg\_app\_time 최고(30분), avg\_amount 최고(약 10만원), total\_amount 최고 \\
+C2 & \textbf{VIP 고객} & 65명 & 13.0\% &
+  recency 최저(3.8일), frequency·total\_amount 최고(101.6회, 약 1,016만원), avg\_amount 최고(약 10만원) \\
 C3 & \textbf{체리피커} & 124명 & 24.8\% &
   discount\_usage\_rate 100\%, avg\_amount 최저(약 3만원) \\
 C1 & \textbf{이탈 위험} & 67명 & 13.4\% &
   recency\_days 최고(76일), frequency 최저 \\
-C0 & \textbf{일반 고객} & 244명 & 48.8\% &
-  전 피처 중간 수준, recency 4일 · 빈도 101회 \\
+C0 & \textbf{탐색형 고객} & 244명 & 48.8\% &
+  avg\_app\_time 중간(10분), purchase\_span\_days 최고, avg\_amount 중간(약 5만원) \\
 \midrule
 & \textbf{합계} & \textbf{500명} & \textbf{100\%} & \\
 \bottomrule
@@ -429,8 +429,10 @@ Train 마지막 30일(2024-03-01~03-31)을 validation set으로 사용하여 가
 \begin{warnbox}{Train MAE 대신 Val MAE를 사용한 이유}
 Train MAE를 사용하면 XGBoost(early stopping 前 500 estimators)는 훈련 데이터를 거의
 암기하여 Train MAE $\approx$ 0으로 수렴, 가중치가 XGBoost 단독에 수렴하는 편향이 발생한다.
-Validation MAE(Prophet 8.26\%, XGBoost 7.36\%)는 held-out 구간의 실제 일반화 성능을
-반영하여 공정한 가중치 산출이 가능하다.
+Validation MAPE(Prophet 8.26\%, XGBoost 7.36\%)가 보여주듯
+held-out 구간에서 두 모델의 일반화 성능 차이는 크지 않으며,
+이를 반영한 Val MAE(Prophet 436,384원, XGBoost 391,433원) 역수 가중으로
+공정한 앙상블 가중치 산출이 가능하다.
 \end{warnbox}
 
 결과적으로 \textbf{Prophet 가중치 0.473, XGBoost 가중치 0.527}로 결정되었다.
@@ -458,7 +460,7 @@ Validation MAE(Prophet 8.26\%, XGBoost 7.36\%)는 held-out 구간의 실제 일�
 \begin{center}
 \begin{tabular}{lcccc}
 \toprule
-\textbf{모델} & \textbf{Val MAPE} & \textbf{Test MAPE (\%)} & \textbf{RMSE (원)} & \textbf{MAE (원)} \\
+\textbf{모델} & \textbf{Val MAPE} & \textbf{Test MAPE (\%)} & \textbf{Test RMSE (원)} & \textbf{Test MAE (원)} \\
 \midrule
 Prophet & 8.26\% & 12.31 & 671,292 & 588,703 \\
 XGBoost & 7.36\% & 10.11 & 655,128 & 521,715 \\
@@ -506,16 +508,16 @@ XGBoost & 7.36\% & 10.11 & 655,128 & 521,715 \\
 비할인 구매 비율 +10\%p (90일 추적). 평균 결제 금액 증가율 측정. \\
 \midrule
 \textbf{3} &
-\textbf{탐색형 고객}\newline(65명, 13.0\%) &
-앱 사용 30분 최고, 평균 결제 10만원. 서비스 충성도 높음. &
+\textbf{VIP 고객}\newline(65명, 13.0\%) &
+앱 사용 30분 최고, 평균 결제 10만원. 서비스 충성도 최고. &
 프리미엄 멤버십 도입(무료 배송·신제품 선공개). 고관여 상품 개인화 추천 강화. &
 LTV 20\% 향상(12개월). 멤버십 유지율 90\% 이상 목표. \\
 \midrule
 \textbf{4} &
-\textbf{일반 고객}\newline(244명, 48.8\%) &
-균형적 중간 프로파일. 이탈·탐색형으로의 전환 가능성 모두 존재. &
+\textbf{탐색형 고객}\newline(244명, 48.8\%) &
+구매 빈도는 높으나 avg\_amount 중간(약 5만원). VIP 전환 잠재력 존재. &
 구매 후 Cross-sell 추천 강화. 누적 구매 N회 달성 시 혜택 제공하는 마일스톤 프로그램. &
-상위 20\%를 탐색형 고객으로 전환(분기별 군집 레이블 재할당 추적). \\
+상위 20\%를 VIP 고객으로 전환(분기별 군집 레이블 재할당 추적). \\
 \bottomrule
 \end{tabular}
 \end{center}
