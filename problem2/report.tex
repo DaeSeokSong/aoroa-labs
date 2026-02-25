@@ -1,0 +1,510 @@
+%! TEX program = xelatex
+\documentclass[a4paper, 11pt]{article}
+
+%% ─────────────────────────────────────────
+%%  한글 / 폰트
+%% ─────────────────────────────────────────
+\usepackage{kotex}
+\usepackage{fontspec}
+\setmainfont{NanumGothic}
+\setsansfont{NanumGothic}
+\setmonofont{NanumGothicCoding}
+
+%% ─────────────────────────────────────────
+%%  수식
+%% ─────────────────────────────────────────
+\usepackage{amsmath, amssymb}
+\usepackage{mathtools}
+
+%% ─────────────────────────────────────────
+%%  레이아웃 / 색상 / 표 / 이미지
+%% ─────────────────────────────────────────
+\usepackage[top=2cm, bottom=2cm, left=2.2cm, right=2.2cm]{geometry}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+
+%% ─────────────────────────────────────────
+%%  섹션 스타일
+%% ─────────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+\setlength{\parskip}{4pt}
+\setlength{\parindent}{0pt}
+
+%% ─────────────────────────────────────────
+%%  박스 (강조, 결과 요약)
+%% ─────────────────────────────────────────
+\usepackage{tcolorbox}
+\tcbuselibrary{theorems, breakable, skins}
+
+\newtcolorbox{infobox}[1]{
+  colback=blue!4!white, colframe=blue!55!black,
+  fonttitle=\bfseries, title=#1, breakable, left=4pt, right=4pt
+}
+\newtcolorbox{resultbox}[1]{
+  colback=green!4!white, colframe=green!55!black,
+  fonttitle=\bfseries, title=#1, breakable, left=4pt, right=4pt
+}
+\newtcolorbox{warnbox}[1]{
+  colback=orange!4!white, colframe=orange!70!black,
+  fonttitle=\bfseries, title=#1, breakable, left=4pt, right=4pt
+}
+
+%% ─────────────────────────────────────────
+%%  이미지 경로
+%% ─────────────────────────────────────────
+\graphicspath{{outputs/eda/}{outputs/segmentation/}{outputs/forecasting/}}
+
+%% ─────────────────────────────────────────
+%%  하이퍼링크 색상
+%% ─────────────────────────────────────────
+\hypersetup{colorlinks=true, linkcolor=blue!60!black, urlcolor=blue!60!black}
+
+%% ═════════════════════════════════════════════════════════════════
+\begin{document}
+%% ═════════════════════════════════════════════════════════════════
+
+%% ─── 표지 ────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries AOROA LABS 채용 과제 — 문제 2}\\[0.6em]
+  {\large 이커머스 데이터 분석 보고서}\\[0.4em]
+  {\normalsize 지원자: 송대석}
+\end{center}
+\vspace{0.3em}
+\hrule
+\vspace{0.5em}
+
+\tableofcontents
+\vspace{0.5em}
+\hrule
+
+%% ═════════════════════════════════════════════════════════════════
+\section{데이터 개요 및 전처리}
+%% ═════════════════════════════════════════════════════════════════
+
+\subsection{원시 데이터 개요}
+
+본 분석 데이터는 가상 이커머스 서비스의 거래 로그로, 아래와 같은 구성을 가진다.
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+\textbf{항목} & \textbf{값} \\
+\midrule
+전체 행 수 & 48,809건 \\
+컬럼 수 & 6개 \\
+고유 사용자 수 & 500명 \\
+분석 기간 & 2023-01-01 \textasciitilde{} 2024-04-30 (16개월) \\
+결측 컬럼 & \texttt{payment\_method} (2,417건, 약 5\%) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}
+\begin{tabular}{llp{7.5cm}}
+\toprule
+\textbf{컬럼} & \textbf{타입} & \textbf{설명} \\
+\midrule
+\texttt{date} & datetime & 거래 발생 일자 \\
+\texttt{user\_id} & string & 사용자 고유 식별자 \\
+\texttt{payment\_method} & categorical & 결제 수단 (Card / Pay / Transfer) \\
+\texttt{discount\_rate} & float [0.0–0.5] & 거래 건별 할인율 \\
+\texttt{app\_time\_min} & int \{5, 10, 15, 20, 30\} & 해당 세션의 앱 사용 시간 (분) \\
+\texttt{paid\_amount} & int (원) & 최종 결제 금액 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{결측치 분석 및 처리}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.52\textwidth]{01_missing.png}
+  \caption{컬럼별 결측치 비율 — \texttt{payment\_method}에만 발생 (약 5\%)}
+\end{figure}
+
+\textbf{처리 전략 —} 결제 수단은 개인의 결제 습관에 따라 결정되는 경향이 강하다.
+따라서 해당 사용자의 전체 거래에서 가장 자주 사용된 수단(유저별 최빈값)으로 대체하였으며,
+해당 사용자의 모든 거래가 결측인 경우에는 전체 데이터의 최빈값(\texttt{Card})으로 대체하였다.
+
+\subsection{Feature Engineering}
+
+군집화 및 예측을 위해 유저별로 12개의 파생 변수를 생성하였다.
+RFM(Recency·Frequency·Monetary) 지표를 기반으로 할인 민감도, 앱 사용 충성도, 구매 주기,
+결제 수단 선호도를 추가하여 사용자 행동을 입체적으로 표현하였다.
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{피처} & \textbf{설명} & \textbf{범주} \\
+\midrule
+\texttt{recency\_days} & 마지막 구매 \textasciitilde{} 기준일(2024-04-30) 경과 일수 & RFM \\
+\texttt{frequency} & 총 구매 횟수 & RFM \\
+\texttt{total\_amount} & 총 결제 금액 (원) & RFM \\
+\texttt{avg\_amount} & 평균 결제 금액 (원) & RFM \\
+\texttt{discount\_usage\_rate} & 할인 적용 구매 비율 & 할인 민감도 \\
+\texttt{avg\_discount\_rate} & 평균 할인율 & 할인 민감도 \\
+\texttt{avg\_app\_time} & 평균 앱 세션 시간 (분) — 충성도 프록시 & 앱 사용 \\
+\texttt{purchase\_span\_days} & 첫 구매 \textasciitilde{} 마지막 구매 기간 (일) & 활동 기간 \\
+\texttt{avg\_interval\_days} & 평균 구매 간격 (일) & 구매 주기 \\
+\texttt{pref\_card/pay/transfer\_ratio} & 결제 수단별 사용 비율 (3개 피처) & 결제 패턴 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%% ═════════════════════════════════════════════════════════════════
+\section{탐색적 데이터 분석 (EDA)}
+%% ═════════════════════════════════════════════════════════════════
+
+\subsection{결제 금액 분포}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{02_paid_amount_dist.png}
+  \caption{\texttt{paid\_amount} 분포 (좌: 히스토그램, 우: 결제 수단별 박스플롯)}
+\end{figure}
+
+결제 금액은 우측으로 긴 꼬리(right-skewed) 분포를 보이며, 평균이 중앙값보다 높다.
+결제 수단별 금액 분포는 유사하나 Transfer에서 상위 이상치가 상대적으로 많이 관찰된다.
+
+\subsection{일별 매출 추세}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{03_daily_sales_trend.png}
+  \caption{일별 총 매출 추세 및 30일 이동평균 — Test 시작점(2024-04-01) 표시}
+\end{figure}
+
+30일 이동평균 기준으로 2023년 하반기부터 완만한 상승 추세가 확인된다.
+2024년 초에도 상승 기조가 유지되며 Test 기간(2024년 4월) 예측 시 이를 반영해야 한다.
+
+\subsection{계절성 분석}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{04_seasonality.png}
+  \caption{요일별 / 월별 평균 매출}
+\end{figure}
+
+\textbf{요일별:} 주말(토·일)에 매출이 증가하는 패턴이 뚜렷하다. \\
+\textbf{월별:} 10–12월(연말 프로모션) 및 3–4월(봄 시즌)에 매출 피크가 관찰된다.
+예측 모델에 주간·연간 계절성을 모두 반영해야 하는 근거이다.
+
+\subsection{할인율 효과 및 사용자 행동 분포}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{05_discount_effect.png}
+  \caption{할인율별 평균 결제 금액 (좌) 및 거래 건수 (우)}
+\end{figure}
+
+할인율이 높을수록 평균 결제 금액이 낮아지는 경향이 있다.
+거래의 상당수는 할인율 0\% 또는 10\%에 집중되어 있으며,
+30\% 이상 할인 거래는 수익성 관점에서 주의가 필요하다.
+
+\begin{figure}[H]
+  \centering
+  \begin{minipage}{0.54\textwidth}
+    \includegraphics[width=\textwidth]{06_user_frequency.png}
+  \end{minipage}
+  \hfill
+  \begin{minipage}{0.41\textwidth}
+    \includegraphics[width=\textwidth]{07_app_time_dist.png}
+  \end{minipage}
+  \caption{유저별 구매 빈도 분포 (좌) 및 앱 세션 시간 분포 (우)}
+\end{figure}
+
+구매 빈도는 소수의 고빈도 구매자가 존재하는 long-tail 분포를 보인다.
+앱 세션 시간은 5개 범주(5·10·15·20·30분)에 거의 균등하게 분포하며,
+앱 사용 시간과 구매 빈도 사이의 단순 비례 관계는 성립하지 않는다.
+
+%% ═════════════════════════════════════════════════════════════════
+\section{과제 2-1. 고객 세분화 (Customer Segmentation)}
+%% ═════════════════════════════════════════════════════════════════
+
+\subsection{분석 파이프라인 및 피처 선택}
+
+\begin{infobox}{군집화 접근법}
+결제 수단 비율(\texttt{pref\_*\_ratio}) 3개 피처는 개인 결제 습관을 반영하지만,
+고객의 \textit{구매 행동 패턴}을 설명하는 RFM·할인·앱 시간 피처에 비해 군집 분리 설명력이 낮다.
+따라서 군집화에는 \textbf{9개 피처}를 사용하고, 결제 수단 비율은 제외하였다:
+\begin{center}
+\small\texttt{recency\_days, frequency, total\_amount, avg\_amount,
+discount\_usage\_rate, avg\_discount\_rate, avg\_app\_time,
+purchase\_span\_days, avg\_interval\_days}
+\end{center}
+모든 피처는 \textbf{StandardScaler}로 표준화 후 사용하였다.
+\end{infobox}
+
+\textbf{비교 모델:}
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \textbf{K-Means}: 군집 중심 기반 Hard Clustering. 이커머스 RFM 분석의 표준 기법으로,
+        군집 결과의 해석이 직관적이다.
+  \item \textbf{GMM}: 확률 분포 기반 Soft Clustering. 군집 경계가 불분명하거나
+        타원형 군집이 존재할 경우에 유리하다.
+\end{itemize}
+
+\subsection{최적 군집 수(K) 탐색}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{01_kmeans_search.png}
+  \caption{K-Means 최적 K 탐색 — Elbow (WCSS) 및 Silhouette Score}
+\end{figure}
+
+K-Means는 Elbow curve(WCSS 감소율의 변곡점)와 Silhouette Score를 종합하여
+\textbf{K=4}를 선택하였다. Silhouette Score가 두 지표 불일치 시 최우선 기준이다.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{02_gmm_search.png}
+  \caption{GMM 최적 K 탐색 — BIC Score 및 Silhouette Score}
+\end{figure}
+
+GMM은 BIC(Bayesian Information Criterion) 최솟값 기준으로 \textbf{K=8}을 선택하였다.
+BIC는 모델 복잡도(파라미터 수)와 데이터 적합도를 동시에 고려하여 과적합을 억제한다.
+
+\subsection{모델 비교 및 최종 선택}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.45\textwidth]{03_model_comparison.png}
+  \caption{K-Means vs GMM Silhouette Score 비교}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{모델} & \textbf{K} & \textbf{Silhouette Score} & \textbf{선택} \\
+\midrule
+\textbf{K-Means} & \textbf{4} & \textbf{0.6141} & \checkmark \\
+GMM & 8 & 0.4810 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{resultbox}{모델 선택 근거}
+Silhouette Score는 군집 내 응집도(intra-cluster cohesion)와 군집 간 분리도(inter-cluster separation)를
+동시에 측정하며, 0.5 이상이면 군집 구조가 명확하다고 판단한다.
+K-Means(0.6141)가 GMM(0.4810)을 크게 앞서므로 \textbf{K-Means(K=4)}를 최종 모델로 선택하였다.
+\end{resultbox}
+
+\subsection{군집 특성 분석 및 페르소나 정의}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{04_tsne.png}
+  \caption{t-SNE 군집 시각화 — 좌: K-Means(최종 선택), 우: GMM}
+\end{figure}
+
+t-SNE 결과 K-Means의 4개 군집은 시각적으로 명확하게 분리되어 있으며,
+GMM의 8개 군집은 경계가 겹치는 영역이 더 많다.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{05_cluster_profile.png}
+  \caption{군집별 피처 프로파일 레이더 차트 (0--1 정규화)}
+\end{figure}
+
+레이더 차트에서 군집별 피처 패턴이 뚜렷이 구분된다.
+각 군집의 특성을 피처 프로파일과 비즈니스 맥락을 결합하여 페르소나를 정의하였다:
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{clccp{5.5cm}}
+\toprule
+\textbf{군집} & \textbf{페르소나} & \textbf{고객 수} & \textbf{비율} & \textbf{주요 피처 특성} \\
+\midrule
+C2 & \textbf{VIP 고객} & 65명 & 13.0\% &
+  recency 낮음, frequency 높음, total\_amount 높음 \\
+C3 & \textbf{체리피커} & 124명 & 24.8\% &
+  discount\_usage\_rate 높음, avg\_amount 낮음 \\
+C1 & \textbf{이탈 위험} & 67명 & 13.4\% &
+  recency 높음(오래됨), frequency 낮음 \\
+C0 & \textbf{일반 고객} & 244명 & 48.8\% &
+  전 피처 중간 수준의 균형적 프로파일 \\
+\midrule
+& \textbf{합계} & \textbf{500명} & \textbf{100\%} & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%% ═════════════════════════════════════════════════════════════════
+\section{과제 2-2. 매출 예측 (Time-Series Forecasting)}
+%% ═════════════════════════════════════════════════════════════════
+
+\subsection{데이터 분할 및 전처리}
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+\textbf{구분} & \textbf{기간} & \textbf{일수} \\
+\midrule
+Train & 2023-01-01 \textasciitilde{} 2024-03-31 & 455일 \\
+Test & 2024-04-01 \textasciitilde{} 2024-04-30 & 30일 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+일별 매출 집계 시 거래가 없는 날짜에는 0을 채워 연속 시계열을 구성하였다.
+
+\subsection{모델 구성 및 선택 근거}
+
+\begin{infobox}{모델 선택 근거}
+EDA에서 \textit{주간 계절성}(주말 매출 증가), \textit{연간 계절성}(월별 피크), \textit{완만한 상승 추세}가
+확인되었다. 이를 포착하기 위해 통계적 계절 분해에 강한 \textbf{Prophet}과
+단기 의존성(lag) 패턴을 학습하는 \textbf{XGBoost}를 결합한 앙상블 구조를 채택하였다.
+\end{infobox}
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{모델} & \textbf{설정 및 근거} \\
+\midrule
+\textbf{Prophet} &
+  \texttt{yearly\_seasonality=True}, \texttt{weekly\_seasonality=True},
+  \texttt{changepoint\_prior\_scale=0.05}(추세 과적합 방지),
+  한국 공휴일 추가(\texttt{holidays} 패키지). \\
+  & \textit{장점:} 계절성·추세의 분해 해석이 직관적인 baseline 모델. \\
+\midrule
+\textbf{XGBoost} &
+  Lag: 1, 2, 3, 7, 14, 21, 28일.
+  Rolling mean: 7, 14, 30일.
+  Calendar: dayofweek, month, is\_weekend, dayofyear.
+  \texttt{n\_estimators=500}, \texttt{max\_depth=4}, \texttt{lr=0.05}. \\
+  & \textit{장점:} 비선형 단기 의존성과 달력 피처의 복합 패턴을 포착. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{앙상블 전략}
+
+두 모델을 \textbf{Train MAE 역수 가중 평균}으로 앙상블하였다.
+Train 오차가 낮은 모델에 더 높은 신뢰를 부여하는 방식이다:
+
+\[
+  w_i = \frac{1 / \mathrm{MAE}_i^{\text{train}}}{\displaystyle\sum_j 1 / \mathrm{MAE}_j^{\text{train}}}
+\]
+
+결과적으로 \textbf{Prophet 가중치 0.119, XGBoost 가중치 0.881}로 결정되었다.
+XGBoost가 학습 데이터 내에서 단기 패턴을 더 잘 포착하여 Train MAE가 낮았기 때문이다.
+
+\subsection{성능 평가}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{01_forecast_comparison.png}
+  \caption{Test 기간(2024년 4월) 예측 vs 실제 비교 및 앙상블 잔차}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \begin{minipage}{0.56\textwidth}
+    \includegraphics[width=\textwidth]{02_metrics_comparison.png}
+  \end{minipage}
+  \hfill
+  \begin{minipage}{0.40\textwidth}
+    \includegraphics[width=\textwidth]{03_residual_dist.png}
+  \end{minipage}
+  \caption{모델별 성능 비교 (좌) 및 앙상블 잔차 분포 (우)}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{모델} & \textbf{MAPE (\%)} & \textbf{RMSE (원)} & \textbf{비고} \\
+\midrule
+Prophet & 12.41 & — & Baseline \\
+XGBoost & 10.14 & — & \\
+\textbf{Ensemble} & \textbf{10.26} & \textbf{625,164} & \textbf{최종 선택} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{resultbox}{성능 해석}
+앙상블 \textbf{MAPE 10.26\%}는 이커머스 일별 매출 예측에서 실용적인 수준으로 판단한다.
+(일반적으로 MAPE $\leq$ 15\%를 허용 가능한 기준으로 사용)
+잔차 분포는 0 근방에 밀집하고 대칭에 가까워 체계적 편향이 없음을 확인하였다.
+
+\textbf{한계:} XGBoost 단독(10.14\%)이 앙상블(10.26\%)보다 소폭 낮다.
+이는 Prophet의 상대적으로 높은 오차가 가중 평균에 반영된 결과이며,
+외부 변수(날씨, 경쟁사 프로모션)를 Prophet Regressor로 추가하면 개선 여지가 있다.
+\end{resultbox}
+
+%% ═════════════════════════════════════════════════════════════════
+\newpage
+\section{과제 2-3. 비즈니스 액션 플랜}
+%% ═════════════════════════════════════════════════════════════════
+
+\textbf{목표:} 세분화(2-1)·예측(2-2) 결과를 기반으로 매출 증대 전략을 제시한다.
+
+\begin{center}
+\small
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{p{2.2cm}p{3cm}p{5.2cm}p{3.2cm}}
+\toprule
+\textbf{군집} & \textbf{현황} & \textbf{전략} & \textbf{기대 효과} \\
+\midrule
+\textbf{VIP 고객}\newline(65명, 13\%) &
+핵심 수익원. 최근 구매, 고빈도, 고금액. &
+프리미엄 멤버십 도입(무료 배송·우선 CS·신제품 선공개). 구매 주기 단축을 위한 개인화 추천 강화. &
+고객 유지율 90\% 이상. 1인당 LTV 20\% 향상 목표. \\
+\midrule
+\textbf{체리피커}\newline(124명, 24.8\%) &
+할인 의존도 高. 할인 외 구매 동기 미형성. &
+할인율 한도 설정(최대 20\%). 번들 상품 설계(가치 소구). 비할인 기간 포인트 적립으로 충성도 전환 유도. &
+할인 비용 절감 + 비할인 구매 비율 10\%p 향상. \\
+\midrule
+\textbf{이탈 위험}\newline(67명, 13.4\%) &
+마지막 구매 이후 장기간 경과. 재활성화 대상. &
+「오랜만이에요」 Win-back 캠페인: 개인화 쿠폰 발송(30일 한정). 이탈 원인 분석·UX 개선. &
+이탈 고객 30\% 재활성화. 캠페인 ROI 추적 운영. \\
+\midrule
+\textbf{일반 고객}\newline(244명, 48.8\%) &
+균형적 중간 프로파일. 잠재적 VIP 후보군. &
+구매 후 교차판매(Cross-sell) 추천 강화. 누적 구매 N회 달성 시 혜택 제공하는 마일스톤 프로그램. &
+중간 고객 상위 20\%를 VIP로 전환. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{infobox}{예측 기반 운영 전략 (2-2 결과 활용)}
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \textbf{탄력적 재고·인력 계획:}
+        앙상블 예측값을 기준으로 $\pm$MAPE(10.26\%) 범위를 불확실성 구간으로 설정,
+        재고 및 CS 인력을 탄력 운영하여 초과 비용을 절감한다.
+  \item \textbf{4월 초 프로모션 선제 실행:}
+        월별 EDA 결과 4월은 연간 매출 피크 구간에 해당하나,
+        이탈 위험 고객 대상 월초 프로모션을 통해 예측 매출을 추가로 확보한다.
+  \item \textbf{예측 정확도 개선 로드맵:}
+        날씨·공휴일 밀집도·경쟁사 이벤트를 Prophet의 Regressor로 통합하면
+        MAPE 2–3\%p 추가 절감이 기대된다.
+\end{itemize}
+\end{infobox}
+
+\begin{warnbox}{가정 사항 (README 지침에 따른 명시)}
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \texttt{app\_time\_min}은 해당 거래 직전 세션의 앱 사용 시간으로 가정하였다.
+        세션과 구매 사이의 인과 관계는 데이터만으로 검증할 수 없으나,
+        충성도 대리 변수(proxy)로서 유의미하다고 판단하였다.
+  \item 매출 예측의 Test 기간(2024년 4월)은 데이터에 포함되어 있으므로
+        Out-of-sample 평가가 가능하였다.
+  \item 군집 페르소나 명명은 피처 프로파일의 상대적 순위 점수 기반 자동 할당 방식을 채택하였으며,
+        실제 서비스에서는 도메인 전문가 검토가 권장된다.
+\end{itemize}
+\end{warnbox}
+
+%% ═════════════════════════════════════════════════════════════════
+\end{document}
+%% ═════════════════════════════════════════════════════════════════

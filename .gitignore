@@ -28,6 +28,13 @@ problem2/outputs/
 *.png
 *.pdf
 
+# LaTeX 빌드 부산물
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
 # OS
 .DS_Store
 Thumbs.db
