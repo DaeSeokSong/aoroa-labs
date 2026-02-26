@@ -116,7 +116,7 @@
 \texttt{user\_id} & string & 사용자 고유 식별자 \\
 \texttt{payment\_method} & categorical & 결제 수단 (Card / Pay / Transfer) \\
 \texttt{discount\_rate} & float [0.0–0.5] & 거래 건별 할인율 \\
-\texttt{app\_time\_min} & int \{5, 10, 15, 20, 30\} & 해당 세션의 앱 사용 시간 (분) \\
+\texttt{app\_time\_min} & int \{10, 15, 30\} & 해당 세션의 앱 사용 시간 (분) \\
 \texttt{paid\_amount} & int (원) & 최종 결제 금액 \\
 \bottomrule
 \end{tabular}
@@ -215,7 +215,7 @@
 \end{figure}
 
 구매 빈도는 소수의 고빈도 구매자가 존재하는 long-tail 분포를 보인다.
-앱 세션 시간은 5개 범주(5·10·15·20·30분)에 거의 균등하게 분포하며,
+앱 세션 시간은 3개 범주(10·15·30분)만 존재하며, 10분이 60.3\%로 가장 많고 15분 26.1\%, 30분 13.5\% 순으로 분포한다.
 앱 사용 시간과 구매 빈도 사이의 단순 비례 관계는 성립하지 않는다.
 
 %% ═════════════════════════════════════════════════════════════════
@@ -318,8 +318,18 @@ GMM & 8 & 0.4810 & \\
 \end{center}
 
 \begin{resultbox}{모델 선택 근거}
+\textbf{Silhouette Score 정의}: 샘플 $i$에 대해
+\[
+  s(i) = \frac{b(i) - a(i)}{\max\!\bigl(a(i),\, b(i)\bigr)}, \quad s(i) \in [-1,\, 1]
+\]
+여기서 $a(i)$는 $i$가 속한 군집 내 다른 샘플들과의 평균 거리(응집도),
+$b(i)$는 $i$에서 가장 가까운 \emph{다른} 군집까지의 평균 거리(분리도)이다.
+$s(i) \to 1$이면 군집 내 밀집·군집 간 분리가 완벽하고,
+$s(i) \to -1$이면 잘못된 군집에 배정된 것을 의미한다.
+전체 Silhouette Score는 모든 샘플의 $s(i)$ 평균이며,
+\textbf{0.5 이상이면 군집 구조가 명확}하다고 판단한다.\\[4pt]
 Silhouette Score는 군집 내 응집도(intra-cluster cohesion)와 군집 간 분리도(inter-cluster separation)를
-동시에 측정하며, 0.5 이상이면 군집 구조가 명확하다고 판단한다.
+동시에 측정한다.
 K-Means(0.6141)가 GMM(0.4810)을 크게 앞서므로 \textbf{K-Means(K=4)}를 최종 모델로 선택하였다.
 \end{resultbox}
 
@@ -363,6 +373,42 @@ C0 & \textbf{탐색형 고객} & 244명 & 48.8\% &
 \bottomrule
 \end{tabular}
 \end{center}
+
+\subsubsection*{페르소나별 데이터 기반 분석}
+
+\textbf{C2 — VIP 고객 (65명, 13.0\%)}\\
+구매 빈도 101.6회·recency 3.8일로 활성도가 매우 높고,
+고객 1인당 평균 총 구매액 \textbf{1,016만원}은 탐색형(503만원)의 \textbf{2배}다.
+추정 매출 기여율은 고객 수(13.0\%) 대비 \textbf{약 26\%}로 LTV(Lifetime Value) 압도적 1위.
+앱 사용 시간 30분(최고)은 제품 탐색에 높은 관여도를 반영하며,
+\textbf{할인 사용률 0\%} — 정가 구매 의향이 있는 가격 비탄력적(price-inelastic) 고객으로
+마진 기여도가 가장 높다. 이탈 방지와 LTV 극대화가 최우선 과제다.
+
+\medskip
+\textbf{C3 — 체리피커 (124명, 24.8\%)}\\
+\textbf{할인 사용률 100\%} — 단 한 건의 정가 구매도 없다.
+구매 빈도 102.8회(전체 최고)에도 불구하고 avg\_amount 30,018원(최저)이며
+1인당 총 구매액은 약 309만원으로 VIP의 30\% 수준.
+추정 매출 기여율은 고객 수(24.8\%)보다 낮은 \textbf{약 15\%}.
+할인 쿠폰이 주요 구매 동기이므로, 할인율 축소 시 구매 이탈 리스크가 동반된다.
+비할인 구매 가치를 형성하는 점진적 전환 전략이 필요하다.
+
+\medskip
+\textbf{C1 — 이탈 위험 (67명, 13.4\%)}\\
+마지막 구매로부터 \textbf{76.3일 경과} — 약 2.5개월 동안 활동이 없다.
+구매 빈도 72.9회로 전체 최저이며 이는 과거에는 활성 구매자였음을 시사한다.
+할인 사용률 0\%로 체리피커와 달리 정가 구매 성향을 보이므로,
+재활성화 성공 시 VIP 군집으로의 전환 가능성을 내포하고 있다.
+
+\medskip
+\textbf{C0 — 탐색형 고객 (244명, 48.8\%)}\\
+전체 고객의 절반을 차지하는 핵심 볼륨 세그먼트.
+추정 매출 기여율 \textbf{약 49\%}로 절대 기여액이 가장 크다.
+avg\_amount 49,924원·구매 빈도 100.7회로 안정적이나,
+앱 사용 10분(VIP 30분 대비 낮음)은 제품 탐색에 그치는 경우가 많음을 시사한다.
+purchase\_span\_days(활동 기간)이 전체 최고 수준이고 할인 사용률 0\%이므로,
+충성도 자체는 높지만 결제 단가가 낮은 상태다.
+평균 결제 금액을 높이면 VIP 전환이 현실적이다.
 
 %% ═════════════════════════════════════════════════════════════════
 \section{과제 2-2. 매출 예측 (Time-Series Forecasting)}
@@ -422,6 +468,19 @@ EDA에서 \textit{주간 계절성}(주말 매출 증가), \textit{연간 계절
 Train 마지막 30일(2024-03-01~03-31)을 validation set으로 사용하여 가중치를 산출하고,
 전체 train으로 재학습한 모델로 test 예측을 수행하였다.
 
+\begin{infobox}{Val MAE 역수 가중 선택 이유}
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \textbf{성능 비례 반영}: MAE가 낮을수록(예측이 정확할수록) 가중치가 자동으로 높아진다.
+        단순 등가 가중(0.5/0.5)은 두 모델의 성능 차이를 무시하므로 비효율적이다.
+  \item \textbf{튜닝 불필요}: 최적 가중치를 별도 탐색(grid search 등)하지 않아도
+        held-out 성능만으로 데이터 기반 배분이 결정된다.
+  \item \textbf{해석 가능성}: $w_i = (1/\mathrm{MAE}_i) / \sum_j (1/\mathrm{MAE}_j)$ 수식이 명확하여
+        Prophet·XGBoost 각각의 기여도를 투명하게 설명할 수 있다.
+  \item \textbf{과적합 억제}: 단 두 모델의 가중치를 단일 held-out 구간으로 결정하므로
+        학습된 가중치가 overfitting될 파라미터 공간이 사실상 없다.
+\end{itemize}
+\end{infobox}
+
 \[
   w_i = \frac{1 / \mathrm{MAE}_i^{\text{val}}}{\displaystyle\sum_j 1 / \mathrm{MAE}_j^{\text{val}}}
 \]
@@ -471,11 +530,29 @@ XGBoost & 7.36\% & 10.11 & 655,128 & 521,715 \\
 
 \begin{resultbox}{성능 해석}
 앙상블 \textbf{Test MAPE 10.96\%}는 이커머스 일별 매출 예측에서 실용적인 수준으로 판단한다.
-(일반적으로 MAPE $\leq$ 15\%를 허용 가능한 기준으로 사용)
+아래 두 가지 외부 기준이 이를 뒷받침한다.
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \textbf{학술 벤치마크}: Mansur et al. (PeerJ CS, 2025)의 소매 일별 판매 예측 연구에서
+        날씨·인구통계 외부 변수를 포함한 LSTM 단독 모델이 \textbf{MAPE 10.39\%}를 달성하였다$^2$.
+        본 앙상블은 \textbf{외부 변수 없이} 10.96\%를 달성하여,
+        제한된 피처 환경에서도 외부 변수 포함 LSTM과 동등한 수준의 예측 정확도를 보였다.
+  \item \textbf{산업 기준}: 소매·이커머스 공급망 분야에서 MAPE $\leq$ 15\%는
+        수요 계획(demand planning) 실무의 허용 오차 상한선으로 제시된다$^3$.
+        10.96\%는 이 기준을 4\%p 이상 하회한다.
+\end{itemize}
 앙상블의 RMSE(631,434원)는 단일 모델 대비 가장 낮아 극단적 오차를 줄이는 효과가 있다.
+MAPE·MAE 기준으로는 XGBoost 단독(MAPE 10.11\%, MAE 521,715원)이 앙상블보다 근소하게 우세한데,
+이는 Prophet(MAPE 12.31\%)의 상대적으로 높은 오차가 가중 평균에 반영된 결과다.
+재고·인력 계획 등 \textbf{최악의 경우(worst-case) 오차 억제}가 중요한 운영 환경에서는
+RMSE 최소화 앙상블이 유리하며, MAPE 최소화가 최우선 기준이라면 XGBoost 단독도 합리적 대안이다.
 
 \textbf{한계:} Test 기간이 30일로 제한되어 계절성이 다른 구간(여름·겨울)에서의 성능은
 검증되지 않았다. 장기 예측 신뢰성 평가를 위해 rolling-window 교차검증이 권장된다.
+\textbf{rolling-window 교차검증}이란 고정 크기의 훈련 윈도우를 시간 순으로 한 칸씩 이동(roll)하며
+여러 구간에서 학습·예측을 반복하여 성능을 평가하는 방법이다.
+예) 훈련 300일 / 예측 30일 윈도우를 2개월씩 이동하면
+4월·6월·8월 등 계절이 다른 구간을 모두 평가할 수 있어
+단일 test 구간보다 \textbf{일반화 성능을 더 신뢰성 있게} 추정할 수 있다.
 
 \textbf{개선 여지:} 외부 변수(공휴일·날씨·경쟁사 이벤트)를 Prophet Regressor로 추가하거나,
 시계열 교차검증(TimeSeriesSplit)으로 앙상블 가중치를 보다 견고하게 추정할 수 있다.
@@ -510,7 +587,7 @@ XGBoost & 7.36\% & 10.11 & 655,128 & 521,715 \\
 \textbf{3} &
 \textbf{VIP 고객}\newline(65명, 13.0\%) &
 앱 사용 30분 최고, 평균 결제 10만원. 서비스 충성도 최고. &
-프리미엄 멤버십 도입(무료 배송·신제품 선공개). 고관여 상품 개인화 추천 강화. &
+\textbf{누적 구매 금액 기반 등급제 멤버십} 도입(예: Bronze/Silver/Gold/Diamond). 등급별로 무료 배송 확장·신제품 선공개·전담 CS·적립금 적립률 상향 등 혜택을 차등 제공. VIP 고객(연 구매액 약 1,016만원)은 최고 등급 자동 편입. 고관여 상품 개인화 추천 강화. &
 LTV 20\% 향상(12개월). 멤버십 유지율 90\% 이상 목표. \\
 \midrule
 \textbf{4} &
@@ -542,7 +619,7 @@ LTV 20\% 향상(12개월). 멤버십 유지율 90\% 이상 목표. \\
 \end{itemize}
 \end{infobox}
 
-\begin{warnbox}{가정 사항 (README 지침에 따른 명시)}
+\begin{warnbox}{분석 가정 사항}
 \begin{itemize}[noitemsep, topsep=2pt]
   \item \texttt{app\_time\_min}은 해당 거래 직전 세션의 앱 사용 시간으로 가정하였다.
         세션과 구매 사이의 인과 관계는 데이터만으로 검증할 수 없으나,
@@ -555,7 +632,11 @@ LTV 20\% 향상(12개월). 멤버십 유지율 90\% 이상 목표. \\
 \end{itemize}
 \end{warnbox}
 
-{\small $^1$ Bain \& Company (2000) — "Prescription for Cutting Costs"}
+{\small $^1$ Bain \& Company (2001) — "Prescription for Cutting Costs"}
+
+{\small $^2$ Mansur, S. et al. (2025) — "Sales Forecasting for Retail Stores Using Hybrid Neural Networks and Sales-Affecting Variables," \textit{PeerJ Computer Science}, doi: 10.7717/peerj-cs.3058. LSTM 단독 MAPE 10.39\% (Sales + Weather + Demographic 외부 변수 포함 조건, Table 6 기준).}
+
+{\small $^3$ EasyReplenish Demand Planning Guide (2024) — 소매·FMCG 공급망에서 MAPE $\leq$ 15\%를 수요 계획 허용 오차 상한선으로 제시. URL: \url{https://www.easyreplenish.com/blog/demand-forecast-accuracy-metrics-tools-industry-benchmarks}}
 
 %% ═════════════════════════════════════════════════════════════════
 \end{document}

@@ -16,8 +16,7 @@ venv/
 # Jupyter
 .ipynb_checkpoints/
 
-# 데이터 파일 (용량 이슈로 제외)
-data/*.csv
+# 데이터 파일
 data/*.xlsx
 
 # 로컬 전용 폴더 (git 추적 불필요)
