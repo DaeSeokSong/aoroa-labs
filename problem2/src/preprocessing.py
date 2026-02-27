@@ -70,7 +70,7 @@ def cap_outliers(df: pd.DataFrame, col: str = "paid_amount", factor: float = 3.0
     삭제가 아닌 클리핑을 선택한 이유:
     - 이상치 삭제 시 실제 고액 결제 거래 정보를 손실한다.
     - 클리핑은 분포 왜도(skewness)를 줄이면서 거래 건수를 보존한다.
-    - 상한 기준: Q3 + {factor}×IQR (3-σ 규칙의 비모수 대안, 정규분포 가정 불필요)
+    - 상한 기준: Tukey(1977) outer fence = Q3 + {factor}×IQR (정규분포 기준 μ+4.7σ 수준의 극단값 판별 기준)
     """
     df = df.copy()
     Q1 = df[col].quantile(0.25)

@@ -88,6 +88,7 @@
 \tableofcontents
 \vspace{0.5em}
 \hrule
+\newpage
 
 %% ═════════════════════════════════════════════════════════════════
 \section{데이터 개요 및 전처리}
@@ -149,10 +150,13 @@
 \begin{itemize}[noitemsep, topsep=2pt]
   \item \textbf{거래 보존}: 삭제 시 실제 발생한 고액 결제 이력을 잃어 일별 매출 집계가 왜곡된다.
   \item \textbf{분포 정규화}: 클리핑은 분포의 왜도(skewness)를 줄여 거리 기반 군집화(K-Means)의 피처 스케일링 효과를 안정화한다.
-  \item \textbf{기준}: $3\times$IQR은 정규분포 기준 약 $4.7\sigma$에 해당하는 보수적 상한으로, 정규분포 가정 없이 적용 가능한 비모수 기준이다.
+  \item \textbf{기준}: IQR(사분위 범위, Q3$-$Q1)은 중앙 50\% 데이터의 산포를 나타낸다.
+        Tukey(1977)의 outer fence(Q3$+3\times$IQR)는 정규분포에서 $\mu+4.7\sigma$ 수준에 해당하며, 극단적 이상치 판별의 전통적 기준이다.
+        이 기준을 이 데이터에 적용하면 상한 \textbf{124,353원}이 산출되고, 이를 초과하는 \textbf{60건(전체의 0.12\%)}만 클리핑 대상으로 한정된다.
 \end{itemize}
 \end{infobox}
 
+\newpage
 %% ═════════════════════════════════════════════════════════════════
 \section{탐색적 데이터 분석 (EDA)}
 %% ═════════════════════════════════════════════════════════════════
@@ -189,7 +193,7 @@
 \end{figure}
 
 \textbf{요일별:} 주말(토·일)에 매출이 증가하는 패턴이 뚜렷하다.
-인과 관계는 데이터만으로 확인할 수 없으나, 이 상관 패턴은 캠페인 집행 타이밍 최적화의 근거로 활용할 수 있다 — 금요일 오전 발송이 주말 구매 전환율을 높일 것으로 기대된다.
+인과 관계는 데이터만으로 확인할 수 없으나, 이 상관 패턴은 캠페인 집행 타이밍 최적화의 근거로 활용할 수 있다 — 금요일 오전 캠페인(이벤트) 알림 발송이 주말 구매 전환율을 높일 것으로 기대된다.
 
 \textbf{월별:} 2023년 1월부터 12월까지 전반적인 \textbf{상승 추세}가 관찰된다.
 1–2월(평균 대비 0.83–0.92배)은 연중 최저 구간이며, 3–4월 소폭 반등 후 5월 재하락,
@@ -253,6 +257,7 @@
 이하 군집화·예측 분석에서는 이 피처를 \textbf{고객 충성도·구매 성향의 범주 프록시}로 사용하였다.
 \end{assumbox}
 
+\newpage
 %% ═════════════════════════════════════════════════════════════════
 \section{Feature Engineering}
 %% ═════════════════════════════════════════════════════════════════
@@ -286,6 +291,7 @@ RFM(Recency·Frequency·Monetary) 지표를 기반으로 할인 민감도, 앱 �
 단, \texttt{recency\_days}는 실제 구매 간격이 아닌 \textbf{하한(lower bound)}으로, 실제 avg\_interval을 과소 추정할 수 있다.
 중앙값 대체 시 군집 특성이 희석되는 문제를 방지한다.}
 
+\newpage
 %% ═════════════════════════════════════════════════════════════════
 \section{과제 2-1. 고객 세분화 (Customer Segmentation)}
 %% ═════════════════════════════════════════════════════════════════
@@ -445,6 +451,7 @@ purchase\_span\_days(활동 기간)이 전체 최고 수준이고 할인 사용�
 충성도 자체는 높지만 결제 단가가 낮은 상태다.
 평균 결제 금액을 높이면 VIP 전환이 현실적이다.
 
+\newpage
 %% ═════════════════════════════════════════════════════════════════
 \section{과제 2-2. 매출 예측 (Time-Series Forecasting)}
 %% ═════════════════════════════════════════════════════════════════
@@ -489,7 +496,7 @@ EDA에서 \textit{주간 계절성}(주말 매출 증가), \textit{연간 계절
 \textbf{XGBoost} &
   Lag: 1, 2, 3, 7, 14, 21, 28일.
   Rolling mean: 7, 14, 30일.
-  Calendar: dayofweek, month, is\_weekend, dayofyear.
+  Calendar: dayofweek, month, is\_weekend, dayofyear, week(ISO 주차).
   \texttt{max\_depth=4}, \texttt{lr=0.05}.
   \textbf{Early stopping}: validation set 기준 최적 \texttt{n\_estimators} 탐색(best\_n=32) 후 전체 train으로 재학습. \\
   & \textit{장점:} 비선형 단기 의존성과 달력 피처의 복합 패턴을 포착. \\
@@ -582,18 +589,24 @@ MAPE·MAE 기준으로는 XGBoost 단독(MAPE 10.11\%, MAE 521,715원)이 앙상
 재고·인력 계획 등 \textbf{최악의 경우(worst-case) 오차 억제}가 중요한 운영 환경에서는
 RMSE 최소화 앙상블이 유리하며, MAPE 최소화가 최우선 기준이라면 XGBoost 단독도 합리적 대안이다.
 
-\textbf{한계:} Test 기간이 30일로 제한되어 계절성이 다른 구간(여름·겨울)에서의 성능은
-검증되지 않았다. 장기 예측 신뢰성 평가를 위해 rolling-window 교차검증이 권장된다.
-또한 XGBoost lag 피처 생성 시 train+test 전체 기간을 대상으로 rolling 집계를 수행하여 test 미래값이 lag 피처에 \textbf{누설(data leakage)}될 수 있다. 영향 규모는 미미(MAPE 기준 $\leq$0.1\%p 추정)하나, 실제 배포 시에는 test 구간을 lag 생성 이전에 격리해야 한다.
-\textbf{rolling-window 교차검증}이란 고정 크기의 훈련 윈도우를 시간 순으로 한 칸씩 이동(roll)하며
-여러 구간에서 학습·예측을 반복하여 성능을 평가하는 방법이다.
-예) 훈련 300일 / 예측 30일 윈도우를 2개월씩 이동하면
-4월·6월·8월 등 계절이 다른 구간을 모두 평가할 수 있어
-단일 test 구간보다 \textbf{일반화 성능을 더 신뢰성 있게} 추정할 수 있다.
-
-\textbf{개선 여지:} 외부 변수(공휴일·날씨·경쟁사 이벤트)를 Prophet Regressor로 추가하거나,
-시계열 교차검증(TimeSeriesSplit)으로 앙상블 가중치를 보다 견고하게 추정할 수 있다.
 \end{resultbox}
+
+\begin{warnbox}{한계}
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \textbf{단일 구간 평가}: Test 기간이 30일(2024-04)로 제한되어 계절성이 다른 구간(여름·겨울)에서의 성능은 검증되지 않았다.
+        장기 신뢰성 확보를 위해 \textbf{rolling-window 교차검증}이 권장된다.
+        (훈련 300일·예측 30일 윈도우를 2개월씩 이동하면 4월·6월·8월 등 다른 계절 구간을 모두 평가 가능)
+  \item \textbf{Data leakage}: XGBoost lag 피처 생성 시 train+test 전체 기간을 대상으로 rolling 집계를 수행하여 test 미래값이 lag 피처에 누설될 수 있다.
+        영향 규모는 미미(MAPE $\leq$0.1\%p 추정)하나, 실제 배포 시에는 test 구간을 lag 생성 이전에 격리해야 한다.
+\end{itemize}
+\end{warnbox}
+
+\begin{infobox}{개선 여지}
+\begin{itemize}[noitemsep, topsep=2pt]
+  \item \textbf{외부 변수 추가}: 공휴일·날씨·경쟁사 이벤트를 Prophet Regressor로 통합하면 MAPE 2--3\%p 추가 절감이 기대된다.
+  \item \textbf{가중치 견고화}: 시계열 교차검증(TimeSeriesSplit)으로 앙상블 가중치를 단일 validation 구간이 아닌 복수 구간 기반으로 추정하면 가중치 안정성을 높일 수 있다.
+\end{itemize}
+\end{infobox}
 
 %% ═════════════════════════════════════════════════════════════════
 \newpage
