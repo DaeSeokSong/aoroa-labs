@@ -293,9 +293,9 @@ def analyze_clusters(
     명명 기준:
     - recency_days 낮음 + frequency 높음 + total_amount 높음      → VIP 고객
     - discount_usage_rate 높음 + avg_discount_rate 높음 + avg_amount 낮음 → 체리피커
-    - avg_app_time 높음 + purchase_span_days 높음 + avg_amount 낮음 → 탐색형 고객
+    - avg_app_time 높음 + purchase_span_days 높음 + avg_amount 낮음 → 일반 고객
     - recency_days 높음 + frequency 낮음                           → 이탈 위험
-    - 나머지                                                        → 일반 고객
+    - 나머지                                                        → 기타 고객
 
     각 페르소나 점수는 사용하는 피처 수로 정규화하여 공정한 비교를 보장한다.
     군집 배정은 점수 내림차순 greedy 방식으로 중복을 방지한다.
@@ -315,7 +315,7 @@ def analyze_clusters(
         all_scores[cluster_id] = {
             "VIP 고객":    ((n - r["recency_days"]) + r["frequency"] + r["total_amount"]) / 3,
             "체리피커":    (r["discount_usage_rate"] + r["avg_discount_rate"] + (n - r["avg_amount"])) / 3,
-            "탐색형 고객": (r["avg_app_time"] + r["purchase_span_days"] + (n - r["avg_amount"])) / 3,
+            "일반 고객":   (r["avg_app_time"] + r["purchase_span_days"] + (n - r["avg_amount"])) / 3,
             "이탈 위험":   (r["recency_days"] + (n - r["frequency"])) / 2,
         }
 
@@ -334,7 +334,7 @@ def analyze_clusters(
             persona_map[cluster_id] = best_persona
             used_personas.add(best_persona)
         else:
-            persona_map[cluster_id] = "일반 고객"
+            persona_map[cluster_id] = "기타 고객"
 
     return profile, persona_map
 
